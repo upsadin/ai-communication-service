@@ -1,0 +1,30 @@
+# TDLib session (contains auth keys — NEVER commit)
+tdlib-session/
+
+# Local secrets
+application-local.yml
+src/main/resources/application-local.yml
+
+# Build
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+*.iml
+.idea/
+*.swp
+*~
+.vscode/
+.settings/
+.classpath/
+.project/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# LLM
+.claudecode/

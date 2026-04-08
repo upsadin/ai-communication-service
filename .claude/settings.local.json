@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:www.baeldung.com)",
+      "WebFetch(domain:docs.langchain4j.dev)",
+      "WebFetch(domain:www.lydtechconsulting.com)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:www.javacodegeeks.com)",
+      "Bash(mvn compile:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(jar tf:*)",
+      "Bash(javap -p -cp ~/.m2/repository/it/tdlight/tdlight-java/3.4.4+td.1.8.52/tdlight-java-3.4.4+td.1.8.52.jar it.tdlight.client.AuthenticationSupplier)",
+      "Bash(javap:*)",
+      "Bash(curl:*)",
+      "Bash(docker exec:*)",
+      "Bash(netstat -ano)",
+      "Bash(mvn test:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/check-flow-change.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
