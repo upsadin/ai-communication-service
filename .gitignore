@@ -5,6 +5,9 @@ tdlib-session/
 application-local.yml
 src/main/resources/application-local.yml
 
+# TDLib native binaries (extracted during testing)
+META-INF/
+
 # Build
 target/
 !.mvn/wrapper/maven-wrapper.jar
@@ -27,4 +30,8 @@ Thumbs.db
 *.log
 
 # LLM
+.claude
 .claudecode/
+CLAUDE.md
+.claudecodeignore
+.mcp.json
