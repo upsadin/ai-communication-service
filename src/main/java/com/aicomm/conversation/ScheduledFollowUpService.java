@@ -1,6 +1,8 @@
 package com.aicomm.conversation;
 
 import com.aicomm.agent.CommunicationAgentFactory;
+import com.aicomm.agent.ConversationContext;
+import com.aicomm.agent.tools.ConversationTools;
 import com.aicomm.domain.Conversation;
 import com.aicomm.persona.PersonaService;
 import com.aicomm.repository.ConversationRepository;
@@ -8,7 +10,7 @@ import com.aicomm.schedule.DeferredMessageService;
 import com.aicomm.schedule.DeferredTaskExecutor;
 import com.aicomm.telegram.TelegramClientService;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.chat.ChatModel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -44,7 +46,7 @@ public class ScheduledFollowUpService {
             "Ты ранее договорилась с кандидатом написать позже. Время пришло. " +
             "Напиши короткое ненавязчивое сообщение — напомни о себе и спроси, удобно ли сейчас пообщаться.";
 
-    private final ChatLanguageModel chatLanguageModel;
+    private final ChatModel chatModel;
     private final ConversationService conversationService;
     private final ConversationRepository conversationRepository;
     private final PersonaService personaService;
@@ -101,16 +103,23 @@ public class ScheduledFollowUpService {
             systemPrompt += "\n\nКонтекст кандидата:\n" + conversation.getCandidateContext();
         }
 
-        var agent = agentFactory.getAgent();
-        var aiResponse = agent.chat(conversation.getId(), systemPrompt, FOLLOW_UP_PROMPT);
+        String aiResponse;
+        try {
+            ConversationContext.set(conversation);
+            ConversationTools.resetCallCount();
+            aiResponse = agentFactory.getAgent().chat(conversation.getId(), systemPrompt, FOLLOW_UP_PROMPT);
+        } finally {
+            ConversationContext.clear();
+            ConversationTools.clearCallCount();
+        }
 
         log.info("Follow-up for conversationId={}: {}",
                 conversation.getId(), com.aicomm.util.MaskingUtil.truncate(aiResponse, 80));
 
         conversationService.addMessage(conversation, "ASSISTANT", aiResponse);
 
-        telegramClientService.sendMessageByChatId(
-                Long.parseLong(conversation.getContactId()), aiResponse
+        telegramClientService.sendMessage(
+                conversation.getContactId(), aiResponse
         ).whenComplete((msg, ex) -> {
             if (ex != null) {
                 log.error("Follow-up send failed for conversationId={}: {}",
@@ -121,7 +130,7 @@ public class ScheduledFollowUpService {
 
     private int classifyDelay(String candidateMessage) {
         var prompt = CLASSIFIER_PROMPT.formatted(candidateMessage);
-        var response = chatLanguageModel.chat(UserMessage.from(prompt));
+        var response = chatModel.chat(UserMessage.from(prompt));
         var text = response.aiMessage().text().trim();
 
         var matcher = NUMBER_PATTERN.matcher(text);

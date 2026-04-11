@@ -1,7 +1,6 @@
 package com.aicomm.telegram;
 
 import com.aicomm.conversation.ConversationContinuationService;
-import com.aicomm.util.MaskingUtil;
 import it.tdlight.jni.TdApi;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
@@ -46,10 +45,6 @@ public class TelegramUpdateHandler {
                     senderId, message.content.getClass().getSimpleName());
             return;
         }
-
-        log.info("Incoming from senderId={}, chatId={}, type={}: {}",
-                MaskingUtil.maskChatId(senderId), MaskingUtil.maskChatId(message.chatId),
-                contentDescription.type(), MaskingUtil.truncate(contentDescription.text(), 80));
 
         telegramClientService.markAsRead(message.chatId, message.id);
 

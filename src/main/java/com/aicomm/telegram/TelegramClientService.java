@@ -1,7 +1,6 @@
 package com.aicomm.telegram;
 
 import com.aicomm.util.MaskingUtil;
-import it.tdlight.client.SimpleTelegramClient;
 import it.tdlight.jni.TdApi;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -101,6 +100,18 @@ public class TelegramClientService {
     }
 
     /**
+     * Send a text message to a contact — auto-detects if contactId is username or numeric chatId.
+     */
+    public CompletableFuture<TdApi.Message> sendMessage(String contactId, String text) {
+        try {
+            long chatId = Long.parseLong(contactId);
+            return sendMessageByChatId(chatId, text);
+        } catch (NumberFormatException e) {
+            return sendMessageByUsername(contactId, text);
+        }
+    }
+
+    /**
      * Simulates human behavior: read delay → typing indicator → send message.
      *
      * 1. "Reading" pause — HR sees the message, finishes what they're doing (no indicator shown)
@@ -115,7 +126,7 @@ public class TelegramClientService {
 
         return delay(readDelayMs)
                 .thenCompose(ignored -> simulateTypingWithRefresh(chatId, typingDelayMs))
-                .thenCompose(ignored -> sendTextMessage(chatId, text));
+                .thenCompose(ignored -> sendWithRetry(chatId, text, 0));
     }
 
     /**
@@ -183,10 +194,6 @@ public class TelegramClientService {
         });
 
         return future;
-    }
-
-    private CompletableFuture<TdApi.Message> sendTextMessage(long chatId, String text) {
-        return sendWithRetry(chatId, text, 0);
     }
 
     private CompletableFuture<TdApi.Message> sendWithRetry(long chatId, String text, int attempt) {

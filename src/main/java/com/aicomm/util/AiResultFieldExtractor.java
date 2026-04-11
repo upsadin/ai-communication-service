@@ -14,12 +14,20 @@ import lombok.extern.slf4j.Slf4j;
 public class AiResultFieldExtractor {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final String DEFAULT_MAPPING =
+            "{\"nameField\":\"full_name\",\"contactField\":\"contacts.telegram\",\"reasonField\":\"reason\"}";
 
     private final JsonNode mappingNode;
 
     public AiResultFieldExtractor(String fieldMappingJson) {
         try {
-            this.mappingNode = MAPPER.readTree(fieldMappingJson);
+            var json = (fieldMappingJson == null || fieldMappingJson.isBlank() || "{}".equals(fieldMappingJson.trim()))
+                    ? DEFAULT_MAPPING
+                    : fieldMappingJson;
+            this.mappingNode = MAPPER.readTree(json);
+            if (json.equals(DEFAULT_MAPPING) && !DEFAULT_MAPPING.equals(fieldMappingJson)) {
+                log.warn("Empty field_mapping, using default: {}", DEFAULT_MAPPING);
+            }
         } catch (Exception e) {
             throw new IllegalArgumentException("Invalid field_mapping JSON: " + fieldMappingJson, e);
         }

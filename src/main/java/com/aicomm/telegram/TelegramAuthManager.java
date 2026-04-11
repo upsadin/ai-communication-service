@@ -33,7 +33,6 @@ import java.util.concurrent.atomic.AtomicReference;
 @EnableConfigurationProperties(TelegramProperties.class)
 public class TelegramAuthManager {
 
-    private final TelegramProperties properties;
     private final SimpleTelegramClientFactory clientFactory;
 
     @Getter
@@ -51,8 +50,6 @@ public class TelegramAuthManager {
 
     public TelegramAuthManager(TelegramProperties properties,
                                TelegramUpdateHandler updateHandler) throws Exception {
-        this.properties = properties;
-
         // Pre-load native dependencies before TDLib (Windows needs this)
         preloadNativeDeps();
 

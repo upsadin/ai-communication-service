@@ -53,15 +53,31 @@ public class ConversationService {
     }
 
     @Transactional
-    public void updateStatus(Conversation conversation, ConversationStatus status) {
+    public void updateStatus(Long conversationId, ConversationStatus status) {
+        var conversation = conversationRepository.findById(conversationId).orElseThrow();
         conversation.setStatus(status);
         conversationRepository.save(conversation);
-        log.info("Conversation id={} status -> {}", conversation.getId(), status);
+        log.info("Conversation id={} status -> {}", conversationId, status);
+    }
+
+    @Transactional
+    public void updateContactId(Long conversationId, String newContactId) {
+        var conversation = conversationRepository.findById(conversationId).orElseThrow();
+        conversation.setContactId(newContactId);
+        conversationRepository.save(conversation);
+        log.info("Conversation id={} contactId updated to {}", conversationId, MaskingUtil.maskContactId(newContactId));
+    }
+
+    public ConversationStatus getStatus(Long conversationId) {
+        return conversationRepository.findById(conversationId)
+                .map(Conversation::getStatus)
+                .orElse(null);
     }
 
     public Optional<Conversation> findActiveByContact(ChannelType channelType, String contactId) {
-        return conversationRepository.findByChannelTypeAndContactIdAndStatus(
-                channelType, contactId, ConversationStatus.ACTIVE);
+        return conversationRepository.findFirstByChannelTypeAndContactIdAndStatusInOrderByCreatedAtDesc(
+                channelType, contactId,
+                java.util.List.of(ConversationStatus.ACTIVE, ConversationStatus.TEST_SENT));
     }
 
     public Optional<Conversation> findBySourceId(String sourceId) {

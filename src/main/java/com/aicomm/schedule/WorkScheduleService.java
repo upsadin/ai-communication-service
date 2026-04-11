@@ -32,9 +32,11 @@ public class WorkScheduleService {
     }
 
     /**
-     * Checks every minute if we need to toggle online status.
+     * Refreshes online status every 10 seconds.
+     * Telegram server expires online presence after ~15s of inactivity,
+     * so 10s keeps the status continuously visible.
      */
-    @Scheduled(fixedRate = 60_000)
+    @Scheduled(fixedRate = 10_000)
     public void checkAndToggleOnlineStatus() {
         if (!authManager.isReady()) return;
 

@@ -20,7 +20,8 @@
     <properties>
         <java.version>21</java.version>
         <tdlight.version>3.4.4+td.1.8.52</tdlight.version>
-        <langchain4j.version>1.0.0-beta1</langchain4j.version>
+        <langchain4j.version>1.12.2</langchain4j.version>
+        <langchain4j.starter.version>1.12.2-beta22</langchain4j.starter.version>
     </properties>
 
     <!-- tdlight native binaries hosted outside Maven Central -->
@@ -108,12 +109,12 @@
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-spring-boot-starter</artifactId>
-            <version>${langchain4j.version}</version>
+            <version>${langchain4j.starter.version}</version>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-open-ai-spring-boot-starter</artifactId>
-            <version>${langchain4j.version}</version>
+            <version>${langchain4j.starter.version}</version>
         </dependency>
 
         <!-- ==================== Utilities ==================== -->

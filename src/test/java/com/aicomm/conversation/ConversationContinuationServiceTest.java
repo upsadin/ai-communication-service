@@ -9,6 +9,9 @@ import com.aicomm.domain.Persona;
 import com.aicomm.persona.PersonaService;
 import com.aicomm.schedule.DeferredMessageService;
 import com.aicomm.telegram.TelegramClientService;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.response.ChatResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,6 +33,7 @@ class ConversationContinuationServiceTest {
     @Mock private ConversationService conversationService;
     @Mock private PersonaService personaService;
     @Mock private CommunicationAgentFactory agentFactory;
+    @Mock private ChatModel chatModel;
     @Mock private TelegramClientService telegramClientService;
     @Mock private DeferredMessageService deferredMessageService;
     @Mock private ScheduledFollowUpService scheduledFollowUpService;
@@ -76,7 +80,7 @@ class ConversationContinuationServiceTest {
         });
         when(agentFactory.getAgent()).thenReturn(agent);
         when(agent.chat(eq(1L), anyString(), anyString())).thenReturn("AI reply");
-        when(telegramClientService.sendMessageByChatId(anyLong(), anyString()))
+        when(telegramClientService.sendMessage(anyString(), anyString()))
                 .thenReturn(CompletableFuture.completedFuture(null));
 
         service.handleIncomingReply(12345L, "test message");
@@ -103,12 +107,43 @@ class ConversationContinuationServiceTest {
         });
         when(agentFactory.getAgent()).thenReturn(agent);
         when(agent.chat(eq(1L), anyString(), anyString())).thenReturn("ok");
-        when(telegramClientService.sendMessageByChatId(anyLong(), anyString()))
+        when(telegramClientService.sendMessage(anyString(), anyString()))
                 .thenReturn(CompletableFuture.completedFuture(null));
 
         service.handleIncomingReply(12345L, "напиши через 5 минут");
 
         verify(scheduledFollowUpService).analyzeAndScheduleIfNeeded("напиши через 5 минут", conversation);
+    }
+
+    @Test
+    void handleIncomingReply_retriesWithoutToolsOnToolLoop() {
+        when(conversationService.findActiveByContact(ChannelType.TELEGRAM, "12345"))
+                .thenReturn(Optional.of(conversation));
+        when(personaService.getByRef("candidate_java")).thenReturn(Optional.of(persona));
+        when(deferredMessageService.executeOrDefer(anyString(), any(), any())).thenAnswer(inv -> {
+            inv.<Runnable>getArgument(2).run();
+            return true;
+        });
+        when(agentFactory.getAgent()).thenReturn(agent);
+        // Simulate tool loop — agent throws "exceeded"
+        when(agent.chat(eq(1L), anyString(), anyString()))
+                .thenThrow(new RuntimeException("Tool execution count exceeded"));
+
+        // ChatModel fallback returns a contextual response
+        var fallbackResponse = ChatResponse.builder()
+                .aiMessage(AiMessage.from("Понял, спасибо за информацию!"))
+                .build();
+        when(chatModel.chat(any(dev.langchain4j.data.message.ChatMessage[].class)))
+                .thenReturn(fallbackResponse);
+        when(telegramClientService.sendMessage(anyString(), anyString()))
+                .thenReturn(CompletableFuture.completedFuture(null));
+
+        service.handleIncomingReply(12345L, "я всё сделал");
+
+        // Verify fallback was used — contextual response, not hardcoded string
+        verify(chatModel).chat(any(dev.langchain4j.data.message.ChatMessage[].class));
+        verify(conversationService).addMessage(conversation, "ASSISTANT", "Понял, спасибо за информацию!");
+        verify(telegramClientService).sendMessage("12345", "Понял, спасибо за информацию!");
     }
 
     @Test

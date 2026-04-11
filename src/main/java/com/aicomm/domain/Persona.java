@@ -40,6 +40,12 @@ public class Persona {
     @Column(name = "field_mapping", nullable = false, columnDefinition = "TEXT")
     private String fieldMapping = "{}";
 
+    @Column(name = "test_task_url")
+    private String testTaskUrl;
+
+    @Column(name = "notification_contact")
+    private String notificationContact;
+
     @Column(name = "active", nullable = false)
     private boolean active = true;
 

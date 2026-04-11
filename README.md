@@ -139,6 +139,7 @@ docker exec aicomm-kafka sh -c "echo '{
 | Переменная | Дефолт | Описание |
 |---|---|---|
 | `AGENT_MEMORY_MAX_MESSAGES` | `20` | Скользящее окно истории (сообщений) |
+| `TEST_TASK_TIMEOUT_DAYS` | `3` | Дней ожидания тестового задания до напоминания |
 
 ---
 
@@ -155,7 +156,27 @@ docker exec aicomm-kafka sh -c "echo '{
 | `system_prompt` | Промпт: характер, стиль, правила общения AI |
 | `first_message_template` | Шаблон первого сообщения с `{{плейсхолдерами}}` |
 | `field_mapping` | JSON: откуда в aiResult брать имя, контакт, причину |
+| `test_task_url` | Ссылка на тестовое задание. AI отправляет её кандидату через `sendTestTask` tool |
+| `notification_contact` | Telegram username (напр. `@bubligoom`) или chatId для уведомлений команды |
 | `active` | Активна ли персона |
+
+#### test_task_url
+
+Ссылка на тестовое задание, которую AI-агент отправляет кандидату через инструмент `sendTestTask`. Меняется через Admin API без редеплоя — можно обновить ссылку для конкретной персоны в любой момент.
+
+#### notification_contact
+
+Telegram username (например `@bubligoom`) или числовой chatId, куда система отправляет уведомления команде. Используется инструментом `notifyTeam` — AI вызывает его, когда кандидат готов к следующему этапу или требуется внимание рекрутера. Также меняется через Admin API.
+
+#### Инструменты AI-агента (@Tool)
+
+Системный промпт персоны должен содержать инструкции о стадиях диалога и доступных инструментах:
+
+- **`sendTestTask`** — отправляет кандидату ссылку на тестовое задание из `test_task_url` персоны. После вызова статус диалога меняется на `TEST_SENT`
+- **`notifyTeam`** — отправляет уведомление в Telegram контакту из `notification_contact` персоны (например, когда кандидат выполнил задание или проявил высокий интерес)
+- **`closeConversation`** — завершает диалог, статус переходит в `COMPLETED`
+
+AI сам решает когда вызвать инструмент, основываясь на контексте диалога и инструкциях в system prompt.
 
 ### field_mapping — подробно
 
@@ -274,9 +295,11 @@ curl -X POST http://localhost:8080/internal/admin/personas \
   -d '{
     "ref": "client_sales",
     "label": "Sales Manager",
-    "systemPrompt": "Ты — менеджер по продажам...",
+    "systemPrompt": "Ты — менеджер по продажам. У тебя есть инструменты: sendTestTask (отправить тестовое), notifyTeam (уведомить команду), closeConversation (завершить диалог)...",
     "firstMessageTemplate": "Напиши первое сообщение. Компания: {{name}}. Почему подходят: {{reason}}",
-    "fieldMapping": "{\"nameField\":\"company_name\",\"contactField\":\"contact_person.telegram\",\"reasonField\":\"why_relevant\"}"
+    "fieldMapping": "{\"nameField\":\"company_name\",\"contactField\":\"contact_person.telegram\",\"reasonField\":\"why_relevant\"}",
+    "testTaskUrl": "https://docs.google.com/forms/d/e/xxx/viewform",
+    "notificationContact": "@bubligoom"
   }'
 ```
 
@@ -297,11 +320,11 @@ GET /internal/admin/personas/{ref}
 
 # Создать
 POST /internal/admin/personas
-Body: {"ref", "label", "systemPrompt", "firstMessageTemplate", "fieldMapping"}
+Body: {"ref", "label", "systemPrompt", "firstMessageTemplate", "fieldMapping", "testTaskUrl", "notificationContact"}
 
 # Обновить (partial update)
 PUT /internal/admin/personas/{ref}
-Body: {"label", "systemPrompt", "firstMessageTemplate", "fieldMapping", "active"}
+Body: {"label", "systemPrompt", "firstMessageTemplate", "fieldMapping", "testTaskUrl", "notificationContact", "active"}
 
 # Деактивировать
 DELETE /internal/admin/personas/{ref}

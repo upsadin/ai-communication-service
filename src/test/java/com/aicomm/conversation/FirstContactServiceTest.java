@@ -10,8 +10,6 @@ import com.aicomm.kafka.dto.MessageProcessingTask;
 import com.aicomm.persona.PersonaService;
 import com.aicomm.telegram.TelegramClientService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import it.tdlight.jni.TdApi;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -71,7 +69,7 @@ class FirstContactServiceTest {
         when(conversationService.createConversation(any(), any(), any(), any(), any(), any())).thenReturn(conversation);
         when(agentFactory.getAgent()).thenReturn(agent);
         when(agent.chat(eq(1L), contains("Ты — Анна, HR"), anyString())).thenReturn("Привет, Виктор!");
-        when(telegramClientService.sendMessageByChatId(eq(12345L), eq("Привет, Виктор!")))
+        when(telegramClientService.sendMessage(eq("12345"), eq("Привет, Виктор!")))
                 .thenReturn(CompletableFuture.completedFuture(null));
 
         firstContactService.initiateContact(task);
@@ -90,10 +88,10 @@ class FirstContactServiceTest {
         assertThat(savedResponse).isEqualTo("Привет, Виктор!");
 
         // Verify sent to Telegram
-        verify(telegramClientService).sendMessageByChatId(12345L, "Привет, Виктор!");
+        verify(telegramClientService).sendMessage("12345", "Привет, Виктор!");
 
         // Verify status updated to ACTIVE
-        verify(conversationService).updateStatus(conversation, ConversationStatus.ACTIVE);
+        verify(conversationService).updateStatus(1L, ConversationStatus.ACTIVE);
     }
 
     @Test
@@ -122,12 +120,12 @@ class FirstContactServiceTest {
         when(conversationService.createConversation(any(), any(), any(), any(), any(), any())).thenReturn(conversation);
         when(agentFactory.getAgent()).thenReturn(agent);
         when(agent.chat(eq(1L), anyString(), anyString())).thenReturn("Привет!");
-        when(telegramClientService.sendMessageByChatId(anyLong(), anyString()))
+        when(telegramClientService.sendMessage(anyString(), anyString()))
                 .thenReturn(CompletableFuture.failedFuture(new RuntimeException("Telegram error")));
 
         firstContactService.initiateContact(task);
 
-        verify(conversationService).updateStatus(conversation, ConversationStatus.FAILED);
+        verify(conversationService).updateStatus(1L, ConversationStatus.FAILED);
     }
 
     @Test
@@ -147,7 +145,7 @@ class FirstContactServiceTest {
         when(conversationService.createConversation(any(), any(), any(), any(), any(), any())).thenReturn(conversation);
         when(agentFactory.getAgent()).thenReturn(agent);
         when(agent.chat(eq(1L), anyString(), anyString())).thenReturn("ok");
-        when(telegramClientService.sendMessageByChatId(anyLong(), anyString()))
+        when(telegramClientService.sendMessage(anyString(), anyString()))
                 .thenReturn(CompletableFuture.completedFuture(null));
 
         firstContactService.initiateContact(task);

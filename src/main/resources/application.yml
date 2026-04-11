@@ -60,6 +60,8 @@ app:
   rate-limit:
     first-contact-interval-sec: ${RATE_LIMIT_FIRST_CONTACT_SEC:120}
     max-first-contacts-per-day: ${RATE_LIMIT_MAX_FIRST_CONTACTS_DAY:25}
+  test-task:
+    timeout-days: ${TEST_TASK_TIMEOUT_DAYS:3}
   telegram:
     read-delay:
       min-ms: ${READ_DELAY_MIN_MS:3000}       # 3-15s pause before "typing" appears (reading/thinking)

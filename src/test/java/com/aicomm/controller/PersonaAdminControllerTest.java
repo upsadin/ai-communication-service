@@ -6,7 +6,6 @@ import com.aicomm.repository.PersonaRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -79,7 +78,7 @@ class PersonaAdminControllerTest {
         });
 
         var request = new PersonaAdminController.CreatePersonaRequest(
-                "candidate_go", "Go HR", "Ты — Анна для Go", "Привет, {{name}}!", "{}");
+                "candidate_go", "Go HR", "Ты — Анна для Go", "Привет, {{name}}!", "{}", "https://test.com", "@bubligoom");
 
         var result = controller.create(request);
 
@@ -94,7 +93,7 @@ class PersonaAdminControllerTest {
         when(personaRepository.save(any(Persona.class))).thenAnswer(inv -> inv.getArgument(0));
 
         var request = new PersonaAdminController.UpdatePersonaRequest(
-                "New Label", "Новый промпт", null, null, null);
+                "New Label", "Новый промпт", null, null, null, null, null);
 
         var response = controller.update("candidate_java", request);
 
@@ -111,7 +110,7 @@ class PersonaAdminControllerTest {
         when(personaRepository.findByRefAndActiveTrue("candidate_java")).thenReturn(Optional.of(persona));
         when(personaRepository.save(any(Persona.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        var request = new PersonaAdminController.UpdatePersonaRequest(null, null, null, null, null);
+        var request = new PersonaAdminController.UpdatePersonaRequest(null, null, null, null, null, null, null);
 
         var response = controller.update("candidate_java", request);
 
@@ -124,7 +123,7 @@ class PersonaAdminControllerTest {
         when(personaRepository.findByRefAndActiveTrue("unknown")).thenReturn(Optional.empty());
 
         var response = controller.update("unknown",
-                new PersonaAdminController.UpdatePersonaRequest("x", "x", "x", null, null));
+                new PersonaAdminController.UpdatePersonaRequest("x", "x", "x", null, null, null, null));
 
         assertThat(response.getStatusCode().value()).isEqualTo(404);
     }

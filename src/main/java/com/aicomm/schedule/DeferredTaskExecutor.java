@@ -2,11 +2,15 @@ package com.aicomm.schedule;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
+import com.aicomm.conversation.ConversationService;
 import com.aicomm.conversation.FirstContactService;
 import com.aicomm.conversation.ScheduledFollowUpService;
+import com.aicomm.domain.ConversationStatus;
 import com.aicomm.domain.DeferredTask;
 import com.aicomm.kafka.dto.MessageProcessingTask;
+import com.aicomm.repository.ConversationRepository;
 import com.aicomm.repository.DeferredTaskRepository;
 import com.aicomm.telegram.TelegramRateLimiter;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,14 +36,18 @@ public class DeferredTaskExecutor {
     public static final String TYPE_FIRST_CONTACT = "FIRST_CONTACT";
     public static final String TYPE_REPLY = "REPLY";
     public static final String TYPE_FOLLOW_UP = "FOLLOW_UP";
+    public static final String TYPE_TEST_TIMEOUT = "TEST_TIMEOUT";
     private static final int MAX_ATTEMPTS = 3;
 
     private final DeferredTaskRepository taskRepository;
     private final ObjectMapper objectMapper;
     private final FirstContactService firstContactService;
     private final ScheduledFollowUpService followUpService;
+    private final ConversationService conversationService;
+    private final ConversationRepository conversationRepository;
     private final WorkScheduleService workScheduleService;
     private final TelegramRateLimiter rateLimiter;
+    private final DeferredMessageService deferredMessageService;
     private final TransactionTemplate transactionTemplate;
 
     @Scheduled(fixedRateString = "${app.schedule.poll-interval-ms:60000}")
@@ -106,8 +114,25 @@ public class DeferredTaskExecutor {
             log.info("Executing deferred task id={}, type={}", task.getId(), task.getTaskType());
 
             switch (task.getTaskType()) {
-                case TYPE_FIRST_CONTACT -> executeFirstContact(task);
-                case TYPE_REPLY, TYPE_FOLLOW_UP -> executeConversationTask(task);
+                case TYPE_FIRST_CONTACT -> {
+                    var messageTask = objectMapper.readValue(task.getPayload(), MessageProcessingTask.class);
+                    firstContactService.initiateContact(messageTask);
+                }
+                case TYPE_REPLY, TYPE_FOLLOW_UP -> {
+                    var payload = objectMapper.readTree(task.getPayload());
+                    var conversationId = payload.get("conversationId").asLong();
+                    followUpService.sendFollowUpForConversation(conversationId);
+                }
+                case TYPE_TEST_TIMEOUT -> {
+                    var payload = objectMapper.readTree(task.getPayload());
+                    var conversationId = payload.get("conversationId").asLong();
+                    handleTestTimeout(conversationId);
+                }
+                case "TEST_TIMEOUT_FINAL" -> {
+                    var payload = objectMapper.readTree(task.getPayload());
+                    var conversationId = payload.get("conversationId").asLong();
+                    handleTestTimeoutFinal(conversationId);
+                }
                 default -> log.warn("Unknown deferred task type: {}", task.getTaskType());
             }
 
@@ -131,14 +156,46 @@ public class DeferredTaskExecutor {
         }
     }
 
-    private void executeFirstContact(DeferredTask task) throws Exception {
-        var messageTask = objectMapper.readValue(task.getPayload(), MessageProcessingTask.class);
-        firstContactService.initiateContact(messageTask);
+    /**
+     * Handles test task timeout: if candidate hasn't responded, send a reminder.
+     * If this is the second timeout (reminder already sent), mark as TIMED_OUT.
+     */
+    private void handleTestTimeout(long conversationId) {
+        var conversationOpt = conversationRepository.findById(conversationId);
+        if (conversationOpt.isEmpty()) return;
+
+        var conversation = conversationOpt.get();
+
+        // If candidate already responded (status changed from TEST_SENT), skip
+        if (conversation.getStatus() != ConversationStatus.TEST_SENT) {
+            log.info("Test timeout for conversationId={} skipped — status is {}", conversationId, conversation.getStatus());
+            return;
+        }
+
+        // Send reminder via follow-up mechanism
+        followUpService.sendFollowUpForConversation(conversationId);
+
+        // Schedule final timeout (1 day) → TIMED_OUT
+        deferredMessageService.deferWithDelay(
+                TYPE_TEST_TIMEOUT + "_FINAL",
+                Map.of("conversationId", conversationId),
+                24 * 60 // 1 day
+        );
+
+        log.info("Test timeout reminder sent for conversationId={}", conversationId);
     }
 
-    private void executeConversationTask(DeferredTask task) throws Exception {
-        var payload = objectMapper.readTree(task.getPayload());
-        var conversationId = payload.get("conversationId").asLong();
-        followUpService.sendFollowUpForConversation(conversationId);
+    private void handleTestTimeoutFinal(long conversationId) {
+        var conversationOpt = conversationRepository.findById(conversationId);
+        if (conversationOpt.isEmpty()) return;
+
+        var conversation = conversationOpt.get();
+        if (conversation.getStatus() != ConversationStatus.TEST_SENT) {
+            log.info("Final test timeout for conversationId={} skipped — status is {}", conversationId, conversation.getStatus());
+            return;
+        }
+
+        conversationService.updateStatus(conversation.getId(), ConversationStatus.TIMED_OUT);
+        log.info("Conversation id={} timed out — no response to test task", conversationId);
     }
 }

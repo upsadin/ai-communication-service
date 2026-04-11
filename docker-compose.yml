@@ -10,6 +10,11 @@ services:
       - "5433:5432"
     volumes:
       - aicomm_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aicomm -d aicomm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   kafka:
     image: apache/kafka:3.7.0

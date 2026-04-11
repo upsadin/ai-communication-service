@@ -16,7 +16,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -73,7 +73,8 @@ class ConversationServiceTest {
         conversation.setId(1L);
         conversation.setStatus(ConversationStatus.INITIATED);
 
-        conversationService.updateStatus(conversation, ConversationStatus.ACTIVE);
+        when(conversationRepository.findById(1L)).thenReturn(java.util.Optional.of(conversation));
+        conversationService.updateStatus(1L, ConversationStatus.ACTIVE);
 
         assertThat(conversation.getStatus()).isEqualTo(ConversationStatus.ACTIVE);
         verify(conversationRepository).save(conversation);
@@ -82,8 +83,8 @@ class ConversationServiceTest {
     @Test
     void findActiveByContact_delegatesToRepository() {
         var conv = new Conversation();
-        when(conversationRepository.findByChannelTypeAndContactIdAndStatus(
-                ChannelType.TELEGRAM, "12345", ConversationStatus.ACTIVE))
+        when(conversationRepository.findFirstByChannelTypeAndContactIdAndStatusInOrderByCreatedAtDesc(
+                eq(ChannelType.TELEGRAM), eq("12345"), anyList()))
                 .thenReturn(Optional.of(conv));
 
         var result = conversationService.findActiveByContact(ChannelType.TELEGRAM, "12345");

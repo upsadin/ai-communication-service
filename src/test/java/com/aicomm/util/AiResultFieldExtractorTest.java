@@ -116,4 +116,38 @@ class AiResultFieldExtractorTest {
         assertThat(extractor.extract(aiResult, "contactField")).isEqualTo("vikulitko");
         assertThat(extractor.extract(aiResult, "reasonField")).isEqualTo("5 лет опыта в Java и Spring Boot");
     }
+
+    @Test
+    void defaultMapping_usedWhenNull() throws Exception {
+        var aiResult = MAPPER.readTree("""
+                {"full_name":"Anna","contacts":{"telegram":"anna123"},"reason":"Go expert"}
+                """);
+        var extractor = new AiResultFieldExtractor(null);
+
+        assertThat(extractor.extract(aiResult, "nameField")).isEqualTo("Anna");
+        assertThat(extractor.extract(aiResult, "contactField")).isEqualTo("anna123");
+        assertThat(extractor.extract(aiResult, "reasonField")).isEqualTo("Go expert");
+    }
+
+    @Test
+    void defaultMapping_usedWhenEmpty() throws Exception {
+        var aiResult = MAPPER.readTree("""
+                {"full_name":"Anna","contacts":{"telegram":"anna123"},"reason":"Go expert"}
+                """);
+        var extractor = new AiResultFieldExtractor("{}");
+
+        assertThat(extractor.extract(aiResult, "nameField")).isEqualTo("Anna");
+        assertThat(extractor.extract(aiResult, "contactField")).isEqualTo("anna123");
+    }
+
+    @Test
+    void defaultMapping_usedWhenBlank() throws Exception {
+        var aiResult = MAPPER.readTree("""
+                {"full_name":"Anna","contacts":{"telegram":"anna123"}}
+                """);
+        var extractor = new AiResultFieldExtractor("   ");
+
+        assertThat(extractor.extract(aiResult, "nameField")).isEqualTo("Anna");
+        assertThat(extractor.extract(aiResult, "contactField")).isEqualTo("anna123");
+    }
 }

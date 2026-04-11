@@ -4,6 +4,8 @@ import java.util.Iterator;
 import java.util.Map;
 
 import com.aicomm.agent.CommunicationAgentFactory;
+import com.aicomm.agent.ConversationContext;
+import com.aicomm.agent.tools.ConversationTools;
 import com.aicomm.domain.ChannelType;
 import com.aicomm.domain.ConversationStatus;
 import com.aicomm.domain.Persona;
@@ -51,7 +53,7 @@ public class FirstContactService {
         var conversation = conversationService.createConversation(
                 task.sourceId(), task.ref(), fullName, ChannelType.TELEGRAM, contactId, candidateContext);
 
-        // 4. Render first message template using field_mapping
+        // 4. Render first message template and generate via AI
         var firstMessagePrompt = renderTemplate(persona, aiResult, extractor);
 
         // 5. Build enriched system prompt (candidate context never falls out of memory)
@@ -62,24 +64,37 @@ public class FirstContactService {
         conversationService.addMessage(conversation, "USER", firstMessagePrompt);
 
         // 7. Generate first message via AI
-        var agent = agentFactory.getAgent();
-        var aiResponse = agent.chat(conversation.getId(), enrichedSystemPrompt, firstMessagePrompt);
+        String firstMessage;
+        try {
+            ConversationContext.set(conversation);
+            ConversationTools.resetCallCount();
+            firstMessage = agentFactory.getAgent().chat(conversation.getId(), enrichedSystemPrompt, firstMessagePrompt);
+        } finally {
+            ConversationContext.clear();
+            ConversationTools.clearCallCount();
+        }
 
-        log.info("AI first message for conversationId={}: {}",
-                conversation.getId(), MaskingUtil.truncate(aiResponse, 80));
+        log.info("First message for conversationId={}: {}",
+                conversation.getId(), MaskingUtil.truncate(firstMessage, 80));
 
         // 8. Save AI response
-        conversationService.addMessage(conversation, "ASSISTANT", aiResponse);
+        conversationService.addMessage(conversation, "ASSISTANT", firstMessage);
 
-        // 9. Send via Telegram with typing simulation
-        telegramClientService.sendMessageByChatId(Long.parseLong(contactId), aiResponse)
-                .thenRun(() -> conversationService.updateStatus(conversation, ConversationStatus.ACTIVE))
-                .exceptionally(ex -> {
-                    log.error("Failed to send to contactId={}: {}", contactId, ex.getMessage());
-                    conversationService.updateStatus(conversation, ConversationStatus.FAILED);
-                    return null;
-                })
-                .join();
+        // 6. Send via Telegram — resolve username to chatId if needed
+        try {
+            var sentMessage = telegramClientService.sendMessage(contactId, firstMessage).join();
+            // Update contactId to numeric chatId (so incoming replies can be matched)
+            if (sentMessage != null && sentMessage.chatId != 0) {
+                var resolvedId = String.valueOf(sentMessage.chatId);
+                if (!resolvedId.equals(contactId)) {
+                    conversationService.updateContactId(conversation.getId(), resolvedId);
+                }
+            }
+            conversationService.updateStatus(conversation.getId(), ConversationStatus.ACTIVE);
+        } catch (Exception ex) {
+            log.error("Failed to send to contactId={}: {}", contactId, ex.getMessage());
+            conversationService.updateStatus(conversation.getId(), ConversationStatus.FAILED);
+        }
     }
 
     /**
@@ -111,4 +126,5 @@ public class FirstContactService {
 
         return template;
     }
+
 }
