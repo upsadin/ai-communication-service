@@ -1,0 +1,58 @@
+spring:
+  datasource:
+    url: ${JDBC_DATABASE_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximumPoolSize: 5
+
+  kafka:
+    bootstrap-servers: ${KAFKACLUSTER_BROKERS}
+    properties:
+      security.protocol: SASL_SSL
+      sasl.mechanism: SCRAM-SHA-512
+      sasl.jaas.config: "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"${KAFKACLUSTER_USERNAME}\" password=\"${KAFKACLUSTER_PASSWORD}\";"
+    consumer:
+      group-id: ${KAFKACLUSTER_PREFIX}-aicomm-consumer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      isolation-level: read_committed
+      max-poll-records: 1
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: com.aicomm.kafka.dto
+        spring.json.value.default.type: com.aicomm.kafka.dto.MessageProcessingTask
+        spring.json.use.type.headers: false
+        fetch.max.bytes: 1048576
+        max.partition.fetch.bytes: 1048576
+        receive.buffer.bytes: 65536
+    listener:
+      ack-mode: manual
+      concurrency: 1
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+telegram:
+  session-path: /tmp/tdlib-session
+
+app:
+  kafka:
+    topic:
+      message-tasks: ${KAFKACLUSTER_PREFIX}-ai.processing.filtered
+
+server:
+  port: ${PORT:8080}
+  forward-headers-strategy: framework
+
+logging:
+  level:
+    org.apache.kafka: WARN
+    org.springframework.kafka: INFO
+    com.aicomm: INFO
+    it.tdlight: OFF

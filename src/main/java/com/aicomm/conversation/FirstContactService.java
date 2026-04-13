@@ -3,9 +3,6 @@ package com.aicomm.conversation;
 import java.util.Iterator;
 import java.util.Map;
 
-import com.aicomm.agent.CommunicationAgentFactory;
-import com.aicomm.agent.ConversationContext;
-import com.aicomm.agent.tools.ConversationTools;
 import com.aicomm.domain.ChannelType;
 import com.aicomm.domain.ConversationStatus;
 import com.aicomm.domain.Persona;
@@ -23,8 +20,8 @@ import org.springframework.stereotype.Service;
  * Handles the first outreach to a candidate:
  * - Extracts contact info from aiResult using Persona's field_mapping
  * - Creates conversation with candidate context
- * - Renders first_message_template with field_mapping + aiResult fields
- * - Generates the first message via AI and sends via Telegram
+ * - Renders first_message_template (direct text with {{placeholders}}, no AI)
+ * - Sends via Telegram
  */
 @Slf4j
 @Service
@@ -33,7 +30,6 @@ public class FirstContactService {
 
     private final PersonaService personaService;
     private final ConversationService conversationService;
-    private final CommunicationAgentFactory agentFactory;
     private final TelegramClientService telegramClientService;
 
     public void initiateContact(MessageProcessingTask task) {
@@ -46,6 +42,9 @@ public class FirstContactService {
         // 2. Extract contact info via field_mapping
         var extractor = new AiResultFieldExtractor(persona.getFieldMapping());
         var contactId = extractor.extract(aiResult, "contactField");
+        if (contactId == null) {
+            contactId = extractor.extract(aiResult, "contactFallbackField");
+        }
         var fullName = extractor.extract(aiResult, "nameField");
 
         // 3. Save candidate context and create conversation
@@ -53,31 +52,13 @@ public class FirstContactService {
         var conversation = conversationService.createConversation(
                 task.sourceId(), task.ref(), fullName, ChannelType.TELEGRAM, contactId, candidateContext);
 
-        // 4. Render first message template and generate via AI
-        var firstMessagePrompt = renderTemplate(persona, aiResult, extractor);
-
-        // 5. Build enriched system prompt (candidate context never falls out of memory)
-        var enrichedSystemPrompt = persona.getSystemPrompt()
-                + "\n\nКонтекст кандидата:\n" + candidateContext;
-
-        // 6. Save prompt as USER message (for ChatMemory)
-        conversationService.addMessage(conversation, "USER", firstMessagePrompt);
-
-        // 7. Generate first message via AI
-        String firstMessage;
-        try {
-            ConversationContext.set(conversation);
-            ConversationTools.resetCallCount();
-            firstMessage = agentFactory.getAgent().chat(conversation.getId(), enrichedSystemPrompt, firstMessagePrompt);
-        } finally {
-            ConversationContext.clear();
-            ConversationTools.clearCallCount();
-        }
+        // 4. Render first message template (direct text, no AI)
+        var firstMessage = renderTemplate(persona, aiResult, extractor);
 
         log.info("First message for conversationId={}: {}",
                 conversation.getId(), MaskingUtil.truncate(firstMessage, 80));
 
-        // 8. Save AI response
+        // 5. Save as ASSISTANT message (for ChatMemory history)
         conversationService.addMessage(conversation, "ASSISTANT", firstMessage);
 
         // 6. Send via Telegram — resolve username to chatId if needed
@@ -99,15 +80,16 @@ public class FirstContactService {
 
     /**
      * Renders first_message_template by replacing {{placeholders}}.
-     * {{name}} and {{reason}} are resolved via field_mapping.
+     * {{name}} extracts first name only (first word from full_name).
      * Any other {{field}} is resolved directly from aiResult top-level fields.
      */
     private String renderTemplate(Persona persona, JsonNode aiResult, AiResultFieldExtractor extractor) {
         var template = persona.getFirstMessageTemplate();
 
-        // Replace mapped placeholders
-        var name = extractor.extract(aiResult, "nameField");
-        template = template.replace("{{name}}", name != null ? name : "кандидат");
+        // Replace {{name}} with first name only (e.g. "Павел Иванов" → "Павел")
+        var fullName = extractor.extract(aiResult, "nameField");
+        var firstName = extractFirstName(fullName);
+        template = template.replace("{{name}}", firstName != null ? firstName : "кандидат");
 
         var reason = extractor.extract(aiResult, "reasonField");
         template = template.replace("{{reason}}", reason != null ? reason : "");
@@ -125,6 +107,16 @@ public class FirstContactService {
         }
 
         return template;
+    }
+
+    /**
+     * Extracts first name from full name string.
+     * "Павел Иванов" → "Павел", "Pavel Ivanov" → "Pavel", null → null
+     */
+    private String extractFirstName(String fullName) {
+        if (fullName == null || fullName.isBlank()) return null;
+        var parts = fullName.trim().split("\\s+");
+        return parts[0];
     }
 
 }

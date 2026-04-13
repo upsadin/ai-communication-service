@@ -48,6 +48,9 @@ public class Conversation {
     @Column(name = "contact_id", nullable = false)
     private String contactId;
 
+    @Column(name = "original_contact_id")
+    private String originalContactId;
+
     @Column(name = "candidate_context", columnDefinition = "TEXT")
     private String candidateContext;
 

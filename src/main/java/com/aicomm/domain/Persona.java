@@ -37,6 +37,9 @@ public class Persona {
     @Column(name = "first_message_template", nullable = false, columnDefinition = "TEXT")
     private String firstMessageTemplate;
 
+    @Column(name = "second_message_template", columnDefinition = "TEXT")
+    private String secondMessageTemplate;
+
     @Column(name = "field_mapping", nullable = false, columnDefinition = "TEXT")
     private String fieldMapping = "{}";
 

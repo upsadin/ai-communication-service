@@ -7,7 +7,6 @@ public record TelegramProperties(
         int apiId,
         String apiHash,
         String phone,
-        String databaseEncryptionKey,
         String sessionPath
 ) {
 }

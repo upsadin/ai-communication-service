@@ -37,6 +37,7 @@ public class ConversationService {
         conversation.setFullName(fullName);
         conversation.setChannelType(channelType);
         conversation.setContactId(contactId);
+        conversation.setOriginalContactId(contactId);
         conversation.setCandidateContext(candidateContext);
         conversation.setStatus(ConversationStatus.INITIATED);
 
@@ -78,6 +79,10 @@ public class ConversationService {
         return conversationRepository.findFirstByChannelTypeAndContactIdAndStatusInOrderByCreatedAtDesc(
                 channelType, contactId,
                 java.util.List.of(ConversationStatus.ACTIVE, ConversationStatus.TEST_SENT));
+    }
+
+    public long countMessages(Long conversationId) {
+        return messageRepository.countByConversationId(conversationId);
     }
 
     public Optional<Conversation> findBySourceId(String sourceId) {

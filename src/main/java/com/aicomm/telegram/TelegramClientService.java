@@ -100,15 +100,70 @@ public class TelegramClientService {
     }
 
     /**
-     * Send a text message to a contact — auto-detects if contactId is username or numeric chatId.
+     * Send a text message to a contact — auto-detects format:
+     * - "+7..." / digits-only starting with country code → phone number (ImportContacts)
+     * - "@username" or non-numeric → username (SearchPublicChat)
+     * - pure numeric (no +) → chatId
      */
     public CompletableFuture<TdApi.Message> sendMessage(String contactId, String text) {
+        if (contactId.startsWith("+")) {
+            return sendMessageByPhone(contactId, text);
+        }
         try {
             long chatId = Long.parseLong(contactId);
             return sendMessageByChatId(chatId, text);
         } catch (NumberFormatException e) {
             return sendMessageByUsername(contactId, text);
         }
+    }
+
+    /**
+     * Sends a message to a user by phone number.
+     * Flow: ImportContacts → get userId → CreatePrivateChat → sendWithTyping
+     */
+    private CompletableFuture<TdApi.Message> sendMessageByPhone(String phone, String text) {
+        if (!authManager.isReady()) {
+            return CompletableFuture.failedFuture(
+                    new IllegalStateException("Telegram client not ready"));
+        }
+
+        var contact = new TdApi.Contact(phone, "", "", "", 0);
+        var importRequest = new TdApi.ImportContacts(new TdApi.Contact[]{contact});
+        var future = new CompletableFuture<TdApi.Message>();
+
+        authManager.getClient().send(importRequest, importResult -> {
+            if (importResult.isError()) {
+                future.completeExceptionally(new TelegramException(
+                        "ImportContacts failed: " + importResult.getError().message,
+                        importResult.getError().code));
+                return;
+            }
+            var imported = importResult.get();
+            if (imported.userIds == null || imported.userIds.length == 0 || imported.userIds[0] == 0) {
+                future.completeExceptionally(new TelegramException(
+                        "Phone not found in Telegram: " + MaskingUtil.maskPhone(phone), 400));
+                return;
+            }
+            long userId = imported.userIds[0];
+            log.debug("Resolved phone {} -> userId={}", MaskingUtil.maskPhone(phone), userId);
+
+            var chatRequest = new TdApi.CreatePrivateChat(userId, true);
+            authManager.getClient().send(chatRequest, chatResult -> {
+                if (chatResult.isError()) {
+                    future.completeExceptionally(new TelegramException(
+                            "CreatePrivateChat failed: " + chatResult.getError().message,
+                            chatResult.getError().code));
+                    return;
+                }
+                sendWithTyping(chatResult.get().id, text)
+                        .whenComplete((msg, ex) -> {
+                            if (ex != null) future.completeExceptionally(ex);
+                            else future.complete(msg);
+                        });
+            });
+        });
+
+        return future;
     }
 
     /**
@@ -132,24 +187,18 @@ public class TelegramClientService {
     /**
      * Sends "typing..." indicator and keeps it alive by resending every 4 seconds.
      * Telegram clears the indicator after ~5s, so we refresh before it expires.
+     * Uses non-blocking chained delays instead of Thread.sleep to avoid blocking ForkJoinPool.
      */
     private CompletableFuture<Void> simulateTypingWithRefresh(long chatId, int totalDelayMs) {
-        return CompletableFuture.runAsync(() -> {
-            int elapsed = 0;
-            int refreshInterval = 4000; // refresh before Telegram's 5s timeout
+        return simulateTypingStep(chatId, 0, totalDelayMs);
+    }
 
-            while (elapsed < totalDelayMs) {
-                sendTypingActionSync(chatId);
-                int sleepMs = Math.min(refreshInterval, totalDelayMs - elapsed);
-                try {
-                    Thread.sleep(sleepMs);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-                elapsed += sleepMs;
-            }
-        });
+    private CompletableFuture<Void> simulateTypingStep(long chatId, int elapsed, int totalDelayMs) {
+        if (elapsed >= totalDelayMs) return CompletableFuture.completedFuture(null);
+        sendTypingActionSync(chatId);
+        int sleepMs = Math.min(4000, totalDelayMs - elapsed);
+        return delay(sleepMs)
+                .thenCompose(ignored -> simulateTypingStep(chatId, elapsed + sleepMs, totalDelayMs));
     }
 
     private void sendTypingActionSync(long chatId) {

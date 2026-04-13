@@ -16,6 +16,7 @@ import jakarta.annotation.PreDestroy;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -151,6 +152,33 @@ public class TelegramAuthManager {
                 log.debug("Could not pre-load {} (may not be needed): {}", lib, e.getMessage());
             }
         }
+    }
+
+    /**
+     * Periodically asks TDLib to clean up cached files and unused data.
+     * Reduces native memory growth from background TDLib activity.
+     */
+    @Scheduled(fixedRate = 3600000) // every hour
+    public void optimizeStorage() {
+        if (!isReady()) return;
+        var optimize = new TdApi.OptimizeStorage(
+                50_000_000,  // maxSize: 50MB
+                -1,          // ttl: default
+                -1,          // count: default
+                0,           // immunityDelay: no immunity
+                new TdApi.FileType[]{},  // all file types
+                new long[]{},            // all chats
+                new long[]{},            // all chats
+                false,                   // returnDeletedFileStatistics
+                0                        // chatLimit
+        );
+        client.send(optimize, result -> {
+            if (result.isError()) {
+                log.debug("OptimizeStorage failed: {}", result.getError().message);
+            } else {
+                log.debug("TDLib storage optimized");
+            }
+        });
     }
 
     @PreDestroy

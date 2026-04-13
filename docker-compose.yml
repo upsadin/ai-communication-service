@@ -3,18 +3,17 @@ services:
     image: postgres:16-alpine
     container_name: aicomm-postgres
     environment:
-      POSTGRES_DB: aicomm
-      POSTGRES_USER: aicomm
-      POSTGRES_PASSWORD: aicomm_local
-    ports:
-      - "5433:5432"
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - aicomm_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aicomm -d aicomm"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   kafka:
     image: apache/kafka:3.7.0
@@ -22,21 +21,62 @@ services:
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:29092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       CLUSTER_ID: aicomm-kafka-cluster-001
-    ports:
-      - "29092:29092"
     volumes:
       - aicomm_kafka:/var/lib/kafka/data
+    restart: unless-stopped
+
+  app:
+    build: .
+    container_name: aicomm-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME}
+      DB_USERNAME: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_TOPIC_MESSAGE_TASKS: ${KAFKA_TOPIC_MESSAGE_TASKS:-ai.processing.filtered}
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
+      TELEGRAM_PHONE: ${TELEGRAM_PHONE}
+      TELEGRAM_SESSION_PATH: /app/tdlib-session
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: gpt-4o
+      WORK_TIMEZONE: ${WORK_TIMEZONE:-Europe/Moscow}
+      WORK_START: ${WORK_START:-09:00}
+      WORK_END: ${WORK_END:-18:35}
+      WORK_DAYS: ${WORK_DAYS:-MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY}
+    volumes:
+      - tdlib_session:/app/tdlib-session
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  # Рараскомментируй и добавь upstream-сервис, если оба на одном сервере:
+  # upstream:
+  #   build: ../ai-processing-service
+  #   depends_on:
+  #     kafka:
+  #       condition: service_started
+  #   environment:
+  #     SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  #   restart: unless-stopped
 
 volumes:
   aicomm_pgdata:
   aicomm_kafka:
+  tdlib_session:

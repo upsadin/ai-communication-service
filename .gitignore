@@ -4,6 +4,7 @@ tdlib-session/
 # Local secrets
 application-local.yml
 src/main/resources/application-local.yml
+.env
 
 # TDLib native binaries (extracted during testing)
 META-INF/

@@ -9,6 +9,14 @@ spring:
   application:
     name: ai-communication-service
 
+  task:
+    execution:
+      pool:
+        core-size: 2
+        max-size: 5
+        queue-capacity: 50
+      thread-name-prefix: "async-"
+
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5433/aicomm}
     username: ${DB_USERNAME:aicomm}
@@ -40,6 +48,7 @@ spring:
       properties:
         spring.json.trusted.packages: com.aicomm.kafka.dto
         spring.json.value.default.type: com.aicomm.kafka.dto.MessageProcessingTask
+        spring.json.use.type.headers: false
     listener:
       ack-mode: manual
 
@@ -84,7 +93,6 @@ telegram:
   api-id: ${TELEGRAM_API_ID:0}
   api-hash: ${TELEGRAM_API_HASH:}
   phone: ${TELEGRAM_PHONE:}
-  database-encryption-key: ${TELEGRAM_DB_ENCRYPTION_KEY:}
   session-path: ${TELEGRAM_SESSION_PATH:tdlib-session}
 
 logging:

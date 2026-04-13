@@ -61,23 +61,99 @@ public class ConversationContinuationService {
         // Save incoming message immediately (so we don't lose it)
         conversationService.addMessage(conversation, "USER", messageText);
 
+        var persona = personaOpt.get();
+
+        // If this is the first candidate reply (2 messages: ASSISTANT first, USER reply)
+        // and persona has a second_message_template — send template only if reply is positive
+        long messageCount = conversationService.countMessages(conversation.getId());
+        if (messageCount == 2 && persona.getSecondMessageTemplate() != null
+                && !persona.getSecondMessageTemplate().isBlank()) {
+            if (isPositiveReply(messageText)) {
+                deferredMessageService.executeOrDefer(
+                        DeferredTaskExecutor.TYPE_REPLY,
+                        java.util.Map.of("conversationId", conversation.getId()),
+                        () -> sendTemplateReply(conversation, persona.getSecondMessageTemplate())
+                );
+                return;
+            }
+            // Negative or unclear reply — let AI handle it naturally
+            log.info("First reply for conversationId={} is not positive, routing to AI", conversation.getId());
+        }
+
         // Defer AI response if outside work hours
         var payload = java.util.Map.of("conversationId", conversation.getId());
         deferredMessageService.executeOrDefer(
                 DeferredTaskExecutor.TYPE_REPLY,
                 payload,
-                () -> generateAndSendReply(conversation, personaOpt.get(), messageText)
+                () -> generateAndSendReply(conversation, persona, messageText)
         );
+    }
+
+    private static final String INTEREST_CLASSIFIER_PROMPT = """
+            Кандидату написали: "Подскажите, актуален ли для Вас сейчас поиск работы?"
+            Кандидат ответил: "%s"
+
+            Кандидат заинтересован в вакансии или хотя бы готов продолжить разговор?
+            Ответь ТОЛЬКО одним словом: YES или NO.
+            YES — если интерес есть, даже минимальный, или ответ нейтральный/неясный.
+            NO — если явный отказ (уже нашёл работу, не интересно, не ищу).
+            """;
+
+    /**
+     * Lightweight AI classification: is the candidate's first reply positive?
+     * Uses a single cheap API call (~$0.001) to understand nuance.
+     */
+    private boolean isPositiveReply(String text) {
+        try {
+            var prompt = INTEREST_CLASSIFIER_PROMPT.formatted(text);
+            var response = chatModel.chat(dev.langchain4j.data.message.UserMessage.from(prompt));
+            var answer = response.aiMessage().text().trim().toUpperCase();
+            log.debug("Interest classification for '{}': {}", MaskingUtil.truncate(text, 40), answer);
+            return answer.contains("YES");
+        } catch (Exception e) {
+            log.warn("Interest classification failed, assuming positive: {}", e.getMessage());
+            return true;
+        }
+    }
+
+    /**
+     * Sends a hardcoded template message (e.g. second message with experience questions).
+     * No AI involved — just save and send.
+     */
+    private void sendTemplateReply(Conversation conversation, String templateText) {
+        try {
+            conversationService.addMessage(conversation, "ASSISTANT", templateText);
+
+            telegramClientService.sendMessage(conversation.getContactId(), templateText)
+                    .whenComplete((msg, ex) -> {
+                        if (ex != null) {
+                            log.error("Failed to send template reply to contactId={}: {}",
+                                    MaskingUtil.maskContactId(conversation.getContactId()), ex.getMessage());
+                        }
+                    });
+
+            log.info("Template reply sent for conversationId={}", conversation.getId());
+        } catch (Exception e) {
+            log.error("Failed to send template reply for conversationId={}: {}",
+                    conversation.getId(), e.getMessage(), e);
+        }
     }
 
     /**
      * Fallback: calls ChatModel directly without tools when tool loop is detected.
-     * Gives a contextual AI response instead of a hardcoded string.
+     * Enriches system prompt with fresh conversation status so the model knows what tools were already executed.
      */
-    private String retryWithoutTools(String systemPrompt, String userMessage) {
+    private String retryWithoutTools(String systemPrompt, String userMessage, long conversationId) {
         try {
+            var enrichedPrompt = systemPrompt;
+            var freshStatus = conversationService.getStatus(conversationId);
+            if (freshStatus == com.aicomm.domain.ConversationStatus.TEST_SENT) {
+                enrichedPrompt += "\n\nВАЖНО: тестовое задание ТОЛЬКО ЧТО отправлено кандидату в этом же ответе. "
+                        + "Напиши ТОЛЬКО краткое подтверждение: «Отлично, ссылка уже у Вас. Если будут вопросы по заданию — пишите!» "
+                        + "Никаких других вопросов.";
+            }
             var response = chatModel.chat(
-                    SystemMessage.from(systemPrompt),
+                    SystemMessage.from(enrichedPrompt),
                     UserMessage.from(userMessage)
             );
             return response.aiMessage().text();
@@ -112,7 +188,7 @@ public class ConversationContinuationService {
             } catch (RuntimeException e) {
                 if (e.getMessage() != null && e.getMessage().contains("exceeded")) {
                     log.warn("Tool loop for conversationId={}, retrying as plain chat", conversation.getId());
-                    aiResponse = retryWithoutTools(systemPrompt, messageText);
+                    aiResponse = retryWithoutTools(systemPrompt, messageText, conversation.getId());
                 } else {
                     throw e;
                 }
