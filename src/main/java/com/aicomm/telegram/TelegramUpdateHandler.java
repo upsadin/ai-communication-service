@@ -1,6 +1,9 @@
 package com.aicomm.telegram;
 
 import com.aicomm.conversation.ConversationContinuationService;
+import com.aicomm.conversation.ConversationService;
+import com.aicomm.domain.ChannelType;
+import com.aicomm.domain.ConversationStatus;
 import it.tdlight.jni.TdApi;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
@@ -19,11 +22,14 @@ import org.springframework.stereotype.Component;
 public class TelegramUpdateHandler {
 
     private final ConversationContinuationService continuationService;
+    private final ConversationService conversationService;
     private final TelegramClientService telegramClientService;
 
     public TelegramUpdateHandler(@Lazy ConversationContinuationService continuationService,
+                                 @Lazy ConversationService conversationService,
                                  @Lazy TelegramClientService telegramClientService) {
         this.continuationService = continuationService;
+        this.conversationService = conversationService;
         this.telegramClientService = telegramClientService;
     }
 
@@ -33,7 +39,9 @@ public class TelegramUpdateHandler {
     public void onUpdateNewMessage(TdApi.UpdateNewMessage update) {
         var message = update.message;
 
+        // Save outgoing admin messages for ESCALATED conversations (so AI has context when resumed)
         if (message.isOutgoing) {
+            handleOutgoingMessage(message);
             return;
         }
 
@@ -49,6 +57,25 @@ public class TelegramUpdateHandler {
         telegramClientService.markAsRead(message.chatId, message.id);
 
         continuationService.handleIncomingReply(senderId, contentDescription.text());
+    }
+
+    /**
+     * Saves outgoing messages (sent by admin from the Telegram account) to conversation history,
+     * but only for ESCALATED conversations. This way AI has full context when resumed.
+     */
+    private void handleOutgoingMessage(TdApi.Message message) {
+        var chatId = String.valueOf(message.chatId);
+        var conversationOpt = conversationService.findActiveByContact(ChannelType.TELEGRAM, chatId);
+        if (conversationOpt.isEmpty()) return;
+
+        var conversation = conversationOpt.get();
+        if (conversation.getStatus() != ConversationStatus.ESCALATED) return;
+
+        var content = extractContentDescription(message.content);
+        if (content == null) return;
+
+        conversationService.addMessage(conversation, "ASSISTANT", content.text());
+        log.info("Admin outgoing message saved for ESCALATED conversationId={}", conversation.getId());
     }
 
     private ContentDescription extractContentDescription(TdApi.MessageContent content) {

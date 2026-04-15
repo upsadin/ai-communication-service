@@ -52,6 +52,13 @@ public class ConversationContinuationService {
                 conversation.getId(), MaskingUtil.maskContactId(contactId),
                 MaskingUtil.truncate(messageText, 80));
 
+        // ESCALATED — save message but don't generate AI reply (admin handles it)
+        if (conversation.getStatus() == com.aicomm.domain.ConversationStatus.ESCALATED) {
+            conversationService.addMessage(conversation, "USER", messageText);
+            log.info("Conversation id={} is ESCALATED, message saved but AI skipped", conversation.getId());
+            return;
+        }
+
         var personaOpt = personaService.getByRef(conversation.getRef());
         if (personaOpt.isEmpty()) {
             log.error("Persona not found for ref={}, conversationId={}", conversation.getRef(), conversation.getId());
@@ -149,7 +156,6 @@ public class ConversationContinuationService {
             var freshStatus = conversationService.getStatus(conversationId);
             if (freshStatus == com.aicomm.domain.ConversationStatus.TEST_SENT) {
                 enrichedPrompt += "\n\nВАЖНО: тестовое задание ТОЛЬКО ЧТО отправлено кандидату в этом же ответе. "
-                        + "Напиши ТОЛЬКО краткое подтверждение: «Отлично, ссылка уже у Вас. Если будут вопросы по заданию — пишите!» "
                         + "Никаких других вопросов.";
             }
             var response = chatModel.chat(
@@ -168,17 +174,31 @@ public class ConversationContinuationService {
             // Analyze if candidate wants to be contacted later (separate lightweight AI call)
             scheduledFollowUpService.analyzeAndScheduleIfNeeded(messageText, conversation);
 
-            // Enrich system prompt with candidate context + current status
+            // Enrich system prompt: candidate context first, then vacancy info LAST
+            // (LLMs pay most attention to the end of system prompt)
             var systemPrompt = persona.getSystemPrompt();
             if (conversation.getCandidateContext() != null) {
                 systemPrompt += "\n\nКонтекст кандидата:\n" + conversation.getCandidateContext();
             }
-            // Tell AI the current conversation status so it doesn't re-trigger tools
             var freshStatus = conversationService.getStatus(conversation.getId());
             if (freshStatus != null) {
                 systemPrompt += "\n\nТекущий статус диалога: " + freshStatus
                         + ". Если статус TEST_SENT — тестовое задание УЖЕ отправлено, НЕ вызывай sendTestTask повторно.";
             }
+            // Vacancy info goes LAST — this is the data AI must use for answering questions
+            if (persona.getVacancyInfo() != null && !persona.getVacancyInfo().isBlank()) {
+                systemPrompt += "\n\n===== ВАКАНСИЯ (единственный источник правды) =====\n"
+                        + persona.getVacancyInfo()
+                        + "\n===== КОНЕЦ ДАННЫХ О ВАКАНСИИ =====\n"
+                        + "Если ответа на вопрос кандидата НЕТ между этими маркерами — вызови escalateToHuman.";
+            }
+
+            log.info("[DIAG] conversationId={}, model={}, vacancyInfo={}, promptLength={}, hasMarker={}",
+                    conversation.getId(),
+                    "env:" + System.getenv("OPENAI_MODEL"),
+                    persona.getVacancyInfo() != null ? persona.getVacancyInfo().length() + " chars" : "NULL",
+                    systemPrompt.length(),
+                    systemPrompt.contains("===== ВАКАНСИЯ"));
 
             String aiResponse;
             try {

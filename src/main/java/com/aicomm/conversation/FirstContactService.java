@@ -89,7 +89,7 @@ public class FirstContactService {
         // Replace {{name}} with first name only (e.g. "Павел Иванов" → "Павел")
         var fullName = extractor.extract(aiResult, "nameField");
         var firstName = extractFirstName(fullName);
-        template = template.replace("{{name}}", firstName != null ? firstName : "кандидат");
+        template = template.replace("{{name}}", firstName != null ? firstName : "к сожалению, не знаю Вашего имени");
 
         var reason = extractor.extract(aiResult, "reasonField");
         template = template.replace("{{reason}}", reason != null ? reason : "");

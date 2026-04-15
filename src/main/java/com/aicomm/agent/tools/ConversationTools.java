@@ -143,6 +143,33 @@ public class ConversationTools {
         }
     }
 
+    @Tool("Передай диалог администратору. Вызови если не знаешь что ответить или ситуация требует вмешательства человека.")
+    public String escalateToHuman(@P("reason") String reason) {
+        if (!checkAndIncrementCallCount("escalateToHuman")) return "Уже передано";
+        var conversation = ConversationContext.get();
+        if (conversation == null) {
+            log.error("escalateToHuman called without ConversationContext");
+            return "Ошибка: контекст диалога не найден";
+        }
+
+        try {
+            conversationService.updateStatus(conversation.getId(), ConversationStatus.ESCALATED);
+
+            var fullName = conversation.getFullName() != null ? conversation.getFullName() : "Unknown";
+            var contactLink = buildContactLink(conversation);
+            var escalationMessage = "⚠ Нужна помощь!\nДиалог #%d (%s)\nКандидат: %s (%s)\nПричина: %s\nResume: PATCH /internal/admin/conversations/%d/resume"
+                    .formatted(conversation.getId(), conversation.getRef(),
+                            fullName, contactLink, reason, conversation.getId());
+            notifyTeamInternal(escalationMessage);
+
+            log.info("Conversation id={} escalated to human: {}", conversation.getId(), reason);
+            return "Диалог передан администратору. Напиши кандидату: «Хороший вопрос! Уточню информацию у коллег и вернусь с ответом в ближайшее время.»";
+        } catch (Exception e) {
+            log.error("escalateToHuman failed for conversationId={}: {}", conversation.getId(), e.getMessage(), e);
+            return "Не удалось передать диалог. Попробуй ответить кандидату самостоятельно.";
+        }
+    }
+
     /**
      * Sends team notification without consuming an AI tool slot.
      * Used internally by sendTestTask and closeConversation, and as the delegate from @Tool notifyTeam.

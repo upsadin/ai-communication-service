@@ -78,7 +78,7 @@ public class ConversationService {
     public Optional<Conversation> findActiveByContact(ChannelType channelType, String contactId) {
         return conversationRepository.findFirstByChannelTypeAndContactIdAndStatusInOrderByCreatedAtDesc(
                 channelType, contactId,
-                java.util.List.of(ConversationStatus.ACTIVE, ConversationStatus.TEST_SENT));
+                java.util.List.of(ConversationStatus.ACTIVE, ConversationStatus.TEST_SENT, ConversationStatus.ESCALATED));
     }
 
     public long countMessages(Long conversationId) {

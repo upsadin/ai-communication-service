@@ -67,6 +67,7 @@ public class PersonaAdminController {
         persona.setSystemPrompt(request.systemPrompt());
         persona.setFirstMessageTemplate(request.firstMessageTemplate());
         if (request.secondMessageTemplate() != null) persona.setSecondMessageTemplate(request.secondMessageTemplate());
+        if (request.vacancyInfo() != null) persona.setVacancyInfo(request.vacancyInfo());
         if (request.fieldMapping() != null) persona.setFieldMapping(request.fieldMapping());
         if (request.testTaskUrl() != null) persona.setTestTaskUrl(request.testTaskUrl());
         if (request.notificationContact() != null) persona.setNotificationContact(request.notificationContact());
@@ -95,6 +96,7 @@ public class PersonaAdminController {
                     if (request.systemPrompt() != null) persona.setSystemPrompt(request.systemPrompt());
                     if (request.firstMessageTemplate() != null) persona.setFirstMessageTemplate(request.firstMessageTemplate());
                     if (request.secondMessageTemplate() != null) persona.setSecondMessageTemplate(request.secondMessageTemplate());
+                    if (request.vacancyInfo() != null) persona.setVacancyInfo(request.vacancyInfo());
                     if (request.fieldMapping() != null) persona.setFieldMapping(request.fieldMapping());
                     if (request.testTaskUrl() != null) persona.setTestTaskUrl(request.testTaskUrl());
                     if (request.notificationContact() != null) persona.setNotificationContact(request.notificationContact());
@@ -157,12 +159,68 @@ public class PersonaAdminController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    @PatchMapping("/{ref}/system-prompt")
+    @Operation(summary = "Обновить системный промпт",
+            description = "Обновляет system_prompt персоны. Многострочный текст: используйте \\n для переносов строк.")
+    public ResponseEntity<PersonaDto> updateSystemPrompt(
+            @Parameter(description = "Уникальный ref персоны", example = "candidate_java") @PathVariable String ref,
+            @RequestBody TextValueRequest request) {
+        return updateTextField(ref, (persona, value) -> persona.setSystemPrompt(value), request.value());
+    }
+
+    @PatchMapping("/{ref}/vacancy-info")
+    @Operation(summary = "Обновить информацию о вакансии",
+            description = "Обновляет vacancy_info — данные, на основе которых AI отвечает кандидату. Многострочный текст: используйте \\n для переносов.")
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+            content = @Content(examples = @ExampleObject(value = """
+                    {"value": "Формат: удалённый\\nСтек: Java 21, Spring Boot\\nЗарплата: от 300,000 руб\\nКоманда: 5 человек"}""")))
+    public ResponseEntity<PersonaDto> updateVacancyInfo(
+            @Parameter(description = "Уникальный ref персоны", example = "candidate_java") @PathVariable String ref,
+            @RequestBody TextValueRequest request) {
+        return updateTextField(ref, (persona, value) -> persona.setVacancyInfo(value), request.value());
+    }
+
+    @PatchMapping("/{ref}/first-message-template")
+    @Operation(summary = "Обновить шаблон первого сообщения",
+            description = "Обновляет first_message_template. Поддерживает {{name}}, {{reason}} плейсхолдеры.")
+    public ResponseEntity<PersonaDto> updateFirstMessageTemplate(
+            @Parameter(description = "Уникальный ref персоны", example = "candidate_java") @PathVariable String ref,
+            @RequestBody TextValueRequest request) {
+        return updateTextField(ref, (persona, value) -> persona.setFirstMessageTemplate(value), request.value());
+    }
+
+    @PatchMapping("/{ref}/second-message-template")
+    @Operation(summary = "Обновить шаблон второго сообщения",
+            description = "Обновляет second_message_template — отправляется без AI при первом ответе кандидата.")
+    public ResponseEntity<PersonaDto> updateSecondMessageTemplate(
+            @Parameter(description = "Уникальный ref персоны", example = "candidate_java") @PathVariable String ref,
+            @RequestBody TextValueRequest request) {
+        return updateTextField(ref, (persona, value) -> persona.setSecondMessageTemplate(value), request.value());
+    }
+
+    private ResponseEntity<PersonaDto> updateTextField(String ref,
+                                                        java.util.function.BiConsumer<Persona, String> setter,
+                                                        String value) {
+        return personaRepository.findByRefAndActiveTrue(ref)
+                .map(persona -> {
+                    setter.accept(persona, value);
+                    var saved = personaRepository.save(persona);
+                    personaService.evictByRef(ref);
+                    return ResponseEntity.ok(PersonaDto.from(saved));
+                })
+                .orElse(ResponseEntity.notFound().build());
+    }
+
     @PostMapping("/cache/evict")
     @Operation(summary = "Сбросить кеш персон", description = "Принудительно очищает Spring-кеш всех персон. Полезно после прямых изменений в БД.")
     public ResponseEntity<Void> evictAllCache() {
         personaService.evictAll();
         return ResponseEntity.ok().build();
     }
+
+    public record TextValueRequest(
+            @Schema(description = "Новое значение текстового поля", example = "Текст...")
+            String value) {}
 
     public record NotificationContactRequest(
             @Schema(description = "Telegram-контакт для уведомлений", example = "@bubligoom")
@@ -184,6 +242,7 @@ public class PersonaAdminController {
             @Schema(description = "Системный промпт для AI-агента") String systemPrompt,
             @Schema(description = "Шаблон первого сообщения (с плейсхолдерами {{name}}, {{reason}})") String firstMessageTemplate,
             @Schema(description = "Шаблон второго сообщения (отправляется без AI при первом ответе кандидата)") String secondMessageTemplate,
+            @Schema(description = "Информация о вакансии — AI отвечает на вопросы кандидата на основе этих данных") String vacancyInfo,
             @Schema(description = "JSON-маппинг полей из aiResult") String fieldMapping,
             @Schema(description = "URL тестового задания") String testTaskUrl,
             @Schema(description = "Telegram-контакт для уведомлений") String notificationContact,
@@ -191,7 +250,7 @@ public class PersonaAdminController {
         public static PersonaDto from(Persona p) {
             return new PersonaDto(p.getId(), p.getRef(), p.getLabel(),
                     p.getSystemPrompt(), p.getFirstMessageTemplate(), p.getSecondMessageTemplate(),
-                    p.getFieldMapping(), p.getTestTaskUrl(), p.getNotificationContact(), p.isActive());
+                    p.getVacancyInfo(), p.getFieldMapping(), p.getTestTaskUrl(), p.getNotificationContact(), p.isActive());
         }
     }
 
@@ -202,6 +261,7 @@ public class PersonaAdminController {
             @Schema(description = "Системный промпт", requiredMode = Schema.RequiredMode.REQUIRED) String systemPrompt,
             @Schema(description = "Шаблон первого сообщения", requiredMode = Schema.RequiredMode.REQUIRED) String firstMessageTemplate,
             @Schema(description = "Шаблон второго сообщения") String secondMessageTemplate,
+            @Schema(description = "Информация о вакансии (формат, стек, зарплата, команда и т.д.)") String vacancyInfo,
             @Schema(description = "JSON-маппинг полей") String fieldMapping,
             @Schema(description = "URL тестового задания") String testTaskUrl,
             @Schema(description = "Telegram-контакт для уведомлений") String notificationContact) {}
@@ -212,6 +272,7 @@ public class PersonaAdminController {
             @Schema(description = "Системный промпт") String systemPrompt,
             @Schema(description = "Шаблон первого сообщения") String firstMessageTemplate,
             @Schema(description = "Шаблон второго сообщения") String secondMessageTemplate,
+            @Schema(description = "Информация о вакансии") String vacancyInfo,
             @Schema(description = "JSON-маппинг полей") String fieldMapping,
             @Schema(description = "URL тестового задания") String testTaskUrl,
             @Schema(description = "Telegram-контакт для уведомлений") String notificationContact,

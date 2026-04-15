@@ -85,8 +85,9 @@ langchain4j:
     chat-model:
       api-key: ${OPENAI_API_KEY:}
       model-name: ${OPENAI_MODEL:gpt-4o}
-      temperature: ${OPENAI_TEMPERATURE:0.7}
-      max-tokens: ${OPENAI_MAX_TOKENS:500}
+      temperature: ${OPENAI_TEMPERATURE:0.4}
+#      reasoning-effort: ${OPENAI_REASONING_EFFORT:medium}
+#      max-tokens: ${OPENAI_MAX_TOKENS:500}
 
 # All secrets via env vars or application-local.yml
 telegram:

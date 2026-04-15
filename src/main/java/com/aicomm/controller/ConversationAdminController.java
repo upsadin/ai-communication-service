@@ -1,7 +1,9 @@
 package com.aicomm.controller;
 
+import com.aicomm.conversation.ConversationService;
 import com.aicomm.domain.Conversation;
 import com.aicomm.domain.ConversationMessage;
+import com.aicomm.domain.ConversationStatus;
 import com.aicomm.repository.ConversationMessageRepository;
 import com.aicomm.repository.ConversationRepository;
 import com.aicomm.util.MaskingUtil;
@@ -25,6 +27,7 @@ public class ConversationAdminController {
 
     private final ConversationRepository conversationRepository;
     private final ConversationMessageRepository messageRepository;
+    private final ConversationService conversationService;
 
     @GetMapping
     @Operation(summary = "Список всех диалогов", description = "Возвращает краткую информацию по всем диалогам (без сообщений)")
@@ -48,9 +51,45 @@ public class ConversationAdminController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    @PatchMapping("/{id}/resume")
+    @Operation(summary = "Вернуть AI в диалог",
+            description = "Возвращает AI-агента в ESCALATED-диалог. Статус меняется на ACTIVE, AI продолжает с полной историей (включая сообщения админа).")
+    @ApiResponse(responseCode = "200", description = "AI возвращён в диалог")
+    @ApiResponse(responseCode = "404", description = "Диалог не найден")
+    @ApiResponse(responseCode = "409", description = "Диалог не в статусе ESCALATED")
+    public ResponseEntity<ConversationSummaryDto> resume(
+            @Parameter(description = "ID диалога", example = "5") @PathVariable Long id) {
+        return conversationRepository.findById(id)
+                .map(conv -> {
+                    if (conv.getStatus() != ConversationStatus.ESCALATED) {
+                        return ResponseEntity.status(409).body(ConversationSummaryDto.from(conv));
+                    }
+                    conversationService.updateStatus(id, ConversationStatus.ACTIVE);
+                    conv.setStatus(ConversationStatus.ACTIVE);
+                    return ResponseEntity.ok(ConversationSummaryDto.from(conv));
+                })
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PatchMapping("/{id}/close")
+    @Operation(summary = "Завершить диалог",
+            description = "Принудительно завершает диалог (из любого статуса). Используйте если админ сам закончил общение с кандидатом.")
+    @ApiResponse(responseCode = "200", description = "Диалог завершён")
+    @ApiResponse(responseCode = "404", description = "Диалог не найден")
+    public ResponseEntity<ConversationSummaryDto> close(
+            @Parameter(description = "ID диалога", example = "5") @PathVariable Long id) {
+        return conversationRepository.findById(id)
+                .map(conv -> {
+                    conversationService.updateStatus(id, ConversationStatus.COMPLETED);
+                    conv.setStatus(ConversationStatus.COMPLETED);
+                    return ResponseEntity.ok(ConversationSummaryDto.from(conv));
+                })
+                .orElse(ResponseEntity.notFound().build());
+    }
+
     @GetMapping("/status/{status}")
     @Operation(summary = "Диалоги по статусу",
-            description = "Фильтрует диалоги по статусу: INITIATED, ACTIVE, TEST_SENT, COMPLETED, FAILED, TIMED_OUT")
+            description = "Фильтрует диалоги по статусу: INITIATED, ACTIVE, TEST_SENT, ESCALATED, COMPLETED, FAILED, TIMED_OUT")
     public List<ConversationSummaryDto> findByStatus(
             @Parameter(description = "Статус диалога", example = "ACTIVE") @PathVariable String status) {
         return conversationRepository.findAll().stream()

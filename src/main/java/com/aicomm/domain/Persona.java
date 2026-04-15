@@ -43,6 +43,9 @@ public class Persona {
     @Column(name = "field_mapping", nullable = false, columnDefinition = "TEXT")
     private String fieldMapping = "{}";
 
+    @Column(name = "vacancy_info", columnDefinition = "TEXT")
+    private String vacancyInfo;
+
     @Column(name = "test_task_url")
     private String testTaskUrl;
 
